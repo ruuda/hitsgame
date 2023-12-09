@@ -12,7 +12,7 @@ import tomllib
 import qrcode
 from qrcode.image.svg import SvgPathImage
 
-from typing import Dict, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple, Tuple
 
 def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
     """
@@ -36,9 +36,10 @@ class Track(NamedTuple):
     artist: str
     year: int
     md5sum: str
+    url: str
 
     @staticmethod
-    def load(fname: str) -> Track:
+    def load(config: Config, fname: str) -> Track:
         """
         Create a track from an input filename.
         """
@@ -55,7 +56,10 @@ class Track(NamedTuple):
         if date is None:
             print(f"{fname}: No ORIGINALDATE or DATE tag present.")
             sys.exit(1)
-        return Track(fname, title, artist, int(date[0:4]), md5sum)
+
+        url = config.url_prefix + md5sum + ".flac"
+
+        return Track(fname, title, artist, int(date[0:4]), md5sum, url)
 
     def out_fname(self) -> str:
         return self.md5sum + ".flac"
@@ -69,13 +73,9 @@ class Track(NamedTuple):
         subprocess.check_call(["metaflac", "--remove-all", "out/tmp.flac"])
         os.rename("out/tmp.flac", os.path.join("out", self.out_fname()))
 
-    def url(self, config: Config) -> str:
-        return config.url_prefix + self.out_fname()
-
-    def qr_svg(self, config: Config) -> str:
+    def qr_svg(self) -> str:
         from qrcode.compat.etree import ET  # type: ignore
-        url = self.url(config)
-        qr = qrcode.make(self.url(config), image_factory=SvgPathImage)
+        qr = qrcode.make(self.url, image_factory=SvgPathImage)
         return ET.tostring(qr.path).decode("ascii")
 
 
@@ -89,18 +89,109 @@ class Config(NamedTuple):
             return Config(**toml)
 
 
+class Table(NamedTuple):
+    """
+    A table of cards laid out on two-sided paper.
+    """
+    cells: List[Track]
+
+    # Hitster cards are 65mm wide, so on a 210mm wide A4 paper, we can fit
+    # 3 columns and still have 7mm margin on both sides. That may be a bit
+    # tight but either way, let's do 3 columns.
+    width: int = 3
+
+    # In the 297mm A4 paper, if we put 4 rows of 65mm that leaves 37mm of
+    # margin, about 20mm top and bottom.
+    height: int = 4
+
+    @staticmethod
+    def new() -> Table:
+        return Table(cells=[])
+
+    def append(self, track: Track) -> None:
+        self.cells.append(track)
+
+    def is_empty(self) -> bool:
+        return len(self.cells) == 0
+
+    def is_full(self) -> bool:
+        return len(self.cells) >= self.width * self.height
+
+    def front_svg(self) -> str:
+        """
+        Render the front of the page as svg. The units are in millimeters.
+        """
+        # Size of the page.
+        w_mm = 210
+        h_mm = 297
+        # Size of the cards / table cells.
+        side_mm = 65
+
+        tw_mm = side_mm * self.width
+        th_mm = side_mm * self.height
+        hmargin_mm = (w_mm - tw_mm) / 2
+        vmargin_mm = (h_mm - th_mm) / 2
+
+        parts: List[str] = []
+        parts.append(
+            '<svg version="1.1" width="210" height="297" '
+            'viewBox="0 0 210 297" '
+            'xmlns="http://www.w3.org/2000/svg">'
+        )
+        parts.append(
+            f'<rect x="{hmargin_mm}" y="{vmargin_mm}" '
+            f'width="{tw_mm}" height="{th_mm}" '
+            'fill="transparent" stroke="black" stroke-width="1" stroke-linejoin="miter"/>'
+        )
+        for ix in range(1, self.width):
+            x_mm = hmargin_mm + ix * side_mm
+            parts.append(
+                f'<line x1="{x_mm}" y1="{vmargin_mm}" '
+                f'x2="{x_mm}" y2="{vmargin_mm + th_mm}" '
+                'stroke="black" stroke-width="1" />'
+            )
+        for iy in range(1, self.height):
+            y_mm = vmargin_mm + iy * side_mm
+            parts.append(
+                f'<line x1="{hmargin_mm}" y1="{y_mm}" '
+                f'x2="{hmargin_mm + tw_mm}" y2="{y_mm}" '
+                'stroke="black" stroke-width="1" />'
+            )
+
+        parts.append("</svg>")
+
+        return "\n".join(parts)
+
+
 def main() -> None:
     config = Config.load("mkhitsgame.toml")
     os.makedirs("out", exist_ok=True)
     track_dir = "tracks"
+
+    table = Table.new()
+    tables: List[Table] = []
+    tracks: List[Track] = []
+
     for fname in os.listdir(track_dir):
         fname_full = os.path.join(track_dir, fname)
-        track = Track.load(fname_full)
+        track = Track.load(config, fname_full)
         track.copy_to_out()
-        print(track)
-        qr = track.qr_svg(config)
-        with open("out/x.svg", "w", encoding="utf-8") as f:
-            f.write(qr)
+        tracks.append(track)
+
+    tracks.sort()
+    for track in tracks:
+        table.append(track)
+
+        if table.is_full():
+            tables.append(table)
+            table = Table.new()
+
+    # Append the final table, which may not be full.
+    if not table.is_empty():
+        tables.append(table)
+
+    with open("cards.svg", "w", encoding="utf-8") as f:
+        f.write(tables[0].front_svg())
 
 
 if __name__ == "__main__":
