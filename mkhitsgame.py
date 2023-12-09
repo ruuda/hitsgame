@@ -76,7 +76,7 @@ class Track(NamedTuple):
         from qrcode.compat.etree import ET  # type: ignore
         url = self.url(config)
         qr = qrcode.make(self.url(config), image_factory=SvgPathImage)
-        return qr.to_string()
+        return ET.tostring(qr.path).decode("ascii")
 
 
 class Config(NamedTuple):
@@ -99,7 +99,7 @@ def main() -> None:
         track.copy_to_out()
         print(track)
         qr = track.qr_svg(config)
-        with open("out/x.svg", "wb") as f:
+        with open("out/x.svg", "w", encoding="utf-8") as f:
             f.write(qr)
 
 
