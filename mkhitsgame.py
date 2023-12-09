@@ -151,6 +151,8 @@ class Table(NamedTuple):
             <style>
             text {{ font-family: {config.font!r}; }}
             .year {{ font-size: 18px; font-weight: 900; }}
+            .title, .artist {{ font-size: 6px; font-weight: 400; }}
+            .title {{ font-style: italic; }}
             </style>
             """
         )
@@ -200,6 +202,14 @@ class Table(NamedTuple):
                 parts.append(
                     f'<text x="{x_mm}" y="{y_mm + 7}" text-anchor="middle" '
                     f'class="year">{track.year}</text>'
+                )
+                parts.append(
+                    f'<text x="{x_mm}" y="{y_mm - 14}" text-anchor="middle" '
+                    f'class="artist">{artist}</text>'
+                )
+                parts.append(
+                    f'<text x="{x_mm}" y="{y_mm + 22}" text-anchor="middle" '
+                    f'class="title">{title}</text>'
                 )
 
         parts.append("</svg>")
