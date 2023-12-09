@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import os.path
 import shutil
@@ -12,7 +13,7 @@ import tomllib
 import qrcode
 from qrcode.image.svg import SvgPathImage
 
-from typing import Dict, List, NamedTuple, Tuple
+from typing import Dict, List, Literal, NamedTuple, Tuple
 
 def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
     """
@@ -73,14 +74,21 @@ class Track(NamedTuple):
         subprocess.check_call(["metaflac", "--remove-all", "out/tmp.flac"])
         os.rename("out/tmp.flac", os.path.join("out", self.out_fname()))
 
-    def qr_svg(self) -> str:
+    def qr_svg(self) -> Tuple[str, int]:
+        """
+        Render a QR code for the URL as SVG path, return also the side length
+        (in SVG units, which by convention we map to mm).
+        """
         from qrcode.compat.etree import ET  # type: ignore
-        qr = qrcode.make(self.url, image_factory=SvgPathImage)
-        return ET.tostring(qr.path).decode("ascii")
+        # A box size of 10 means that every "pixel" in the code is 1mm, but we
+        # don't know how many pixels wide and tall the code is.
+        qr = qrcode.make(self.url, image_factory=SvgPathImage, box_size=10)
+        return ET.tostring(qr.path).decode("ascii"), qr.pixel_size / qr.box_size
 
 
 class Config(NamedTuple):
     url_prefix: str
+    font: str
 
     @staticmethod
     def load(fname: str) -> Config:
@@ -117,7 +125,7 @@ class Table(NamedTuple):
     def is_full(self) -> bool:
         return len(self.cells) >= self.width * self.height
 
-    def front_svg(self) -> str:
+    def render_svg(self, config: Config, mode: Literal["qr"] | Literal["title"]) -> str:
         """
         Render the front of the page as svg. The units are in millimeters.
         """
@@ -139,24 +147,60 @@ class Table(NamedTuple):
             'xmlns="http://www.w3.org/2000/svg">'
         )
         parts.append(
+            f"""
+            <style>
+            text {{ font-family: {config.font!r}; }}
+            .year {{ font-size: 18px; font-weight: 900; }}
+            </style>
+            """
+        )
+        parts.append(
             f'<rect x="{hmargin_mm}" y="{vmargin_mm}" '
             f'width="{tw_mm}" height="{th_mm}" '
-            'fill="transparent" stroke="black" stroke-width="1" stroke-linejoin="miter"/>'
+            'fill="transparent" stroke="black" stroke-width="0.1" stroke-linejoin="miter"/>'
         )
         for ix in range(1, self.width):
             x_mm = hmargin_mm + ix * side_mm
             parts.append(
                 f'<line x1="{x_mm}" y1="{vmargin_mm}" '
                 f'x2="{x_mm}" y2="{vmargin_mm + th_mm}" '
-                'stroke="black" stroke-width="1" />'
+                'stroke="black" stroke-width="0.1" />'
             )
         for iy in range(1, self.height):
             y_mm = vmargin_mm + iy * side_mm
             parts.append(
                 f'<line x1="{hmargin_mm}" y1="{y_mm}" '
                 f'x2="{hmargin_mm + tw_mm}" y2="{y_mm}" '
-                'stroke="black" stroke-width="1" />'
+                'stroke="black" stroke-width="0.1" />'
             )
+
+        for i, track in enumerate(self.cells):
+            if mode == "qr":
+                ix = i % self.width
+                iy = i // self.width
+                qr_path, qr_mm = track.qr_svg()
+                # I'm lazy so we center the QR codes, we don't resize them. If the
+                # urls get longer, then the QR codes will cover a larger area of the
+                # cards.
+                x_mm = hmargin_mm + ix * side_mm + (side_mm - qr_mm) / 2
+                y_mm = vmargin_mm + iy * side_mm + (side_mm - qr_mm) / 2
+                parts.append(f'<g transform="translate({x_mm}, {y_mm})">')
+                parts.append(qr_path)
+                parts.append(f'</g>')
+
+            if mode == "title":
+                # Note, we mirror over the x-axis, to match the QR codes when
+                # printed double-sided.
+                ix = self.width - 1 - (i % self.width)
+                iy = i // self.width
+                x_mm = hmargin_mm + (ix + 0.5) * side_mm
+                y_mm = vmargin_mm + (iy + 0.5) * side_mm
+                title = html.escape(track.title)
+                artist = html.escape(track.artist)
+                parts.append(
+                    f'<text x="{x_mm}" y="{y_mm + 7}" text-anchor="middle" '
+                    f'class="year">{track.year}</text>'
+                )
 
         parts.append("</svg>")
 
@@ -190,8 +234,10 @@ def main() -> None:
     if not table.is_empty():
         tables.append(table)
 
-    with open("cards.svg", "w", encoding="utf-8") as f:
-        f.write(tables[0].front_svg())
+    with open("front.svg", "w", encoding="utf-8") as f:
+        f.write(tables[0].render_svg(config, "qr"))
+    with open("back.svg", "w", encoding="utf-8") as f:
+        f.write(tables[0].render_svg(config, "title"))
 
 
 if __name__ == "__main__":
