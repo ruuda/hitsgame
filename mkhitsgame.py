@@ -81,9 +81,11 @@ class Track(NamedTuple):
         """
         from qrcode.compat.etree import ET  # type: ignore
         # A box size of 10 means that every "pixel" in the code is 1mm, but we
-        # don't know how many pixels wide and tall the code is.
-        qr = qrcode.make(self.url, image_factory=SvgPathImage, box_size=10)
-        return ET.tostring(qr.path).decode("ascii"), qr.pixel_size / qr.box_size
+        # don't know how many pixels wide and tall the code is, so return that
+        # too, the "pixel size". Note, it is independent of the specified box
+        # size, we always have to divide by 10.
+        qr = qrcode.make(self.url, image_factory=SvgPathImage, box_size=8)
+        return ET.tostring(qr.path).decode("ascii"), qr.pixel_size / 10
 
 
 class Config(NamedTuple):
@@ -130,7 +132,7 @@ def render_text_svg(x_mm: float, y_mm: float, s: str, class_: str) -> Iterable[s
     Render the artist or title, broken across lines if needed.
     """
     lines = line_break_text(s)
-    line_height_mm = 7
+    line_height_mm = 6
     h_mm = line_height_mm * len(lines)
 
     for i, line in enumerate(lines):
@@ -169,7 +171,12 @@ class Table(NamedTuple):
     def is_full(self) -> bool:
         return len(self.cells) >= self.width * self.height
 
-    def render_svg(self, config: Config, mode: Literal["qr"] | Literal["title"]) -> str:
+    def render_svg(
+        self,
+        config: Config,
+        mode: Literal["qr"] | Literal["title"],
+        page_footer: str
+    ) -> str:
         """
         Render the front of the page as svg. The units are in millimeters.
         """
@@ -183,10 +190,13 @@ class Table(NamedTuple):
         th_mm = side_mm * self.height
         hmargin_mm = (w_mm - tw_mm) / 2
         vmargin_mm = (h_mm - th_mm) / 2
+        # Align the table top-left with a fixed margin and leave more space at
+        # the bottom, so we can put a page number there.
+        vmargin_mm = hmargin_mm
 
         parts: List[str] = []
         parts.append(
-            '<svg version="1.1" width="210" height="297" '
+            '<svg version="1.1" width="210mm" height="297mm" '
             'viewBox="0 0 210 297" '
             'xmlns="http://www.w3.org/2000/svg">'
         )
@@ -195,7 +205,7 @@ class Table(NamedTuple):
             <style>
             text {{ font-family: {config.font!r}; }}
             .year {{ font-size: 18px; font-weight: 900; }}
-            .title, .artist {{ font-size: 6px; font-weight: 400; }}
+            .title, .artist, .footer {{ font-size: 5.2px; font-weight: 400; }}
             .title {{ font-style: italic; }}
             </style>
             """
@@ -242,13 +252,18 @@ class Table(NamedTuple):
                 x_mm = hmargin_mm + (ix + 0.5) * side_mm
                 y_mm = vmargin_mm + (iy + 0.5) * side_mm
                 parts.append(
-                    f'<text x="{x_mm}" y="{y_mm + 7}" text-anchor="middle" '
+                    f'<text x="{x_mm}" y="{y_mm + 6.5}" text-anchor="middle" '
                     f'class="year">{track.year}</text>'
                 )
                 for part in render_text_svg(x_mm, y_mm - 19, track.artist, "artist"):
                     parts.append(part)
                 for part in render_text_svg(x_mm, y_mm + 18, track.title, "title"):
                     parts.append(part)
+
+        parts.append(
+            f'<text x="{w_mm - hmargin_mm}" y="{h_mm - hmargin_mm}" text-anchor="end" '
+            f'class="footer">{html.escape(page_footer)}</text>'
+        )
 
         parts.append("</svg>")
 
@@ -258,6 +273,7 @@ class Table(NamedTuple):
 def main() -> None:
     config = Config.load("mkhitsgame.toml")
     os.makedirs("out", exist_ok=True)
+    os.makedirs("build", exist_ok=True)
     track_dir = "tracks"
 
     table = Table.new()
@@ -282,10 +298,20 @@ def main() -> None:
     if not table.is_empty():
         tables.append(table)
 
-    with open("front.svg", "w", encoding="utf-8") as f:
-        f.write(tables[0].render_svg(config, "qr"))
-    with open("back.svg", "w", encoding="utf-8") as f:
-        f.write(tables[0].render_svg(config, "title"))
+    # For every table, write the two pages as svg.
+    pdf_inputs: List[str] = []
+    for i, table in enumerate(tables):
+        p = i + 1
+        pdf_inputs.append(f"build/{p}a.svg")
+        pdf_inputs.append(f"build/{p}b.svg")
+        with open(pdf_inputs[-2], "w", encoding="utf-8") as f:
+            f.write(tables[0].render_svg(config, "title", f"{p}a"))
+        with open(pdf_inputs[-1], "w", encoding="utf-8") as f:
+            f.write(tables[0].render_svg(config, "qr", f"{p}b"))
+
+    # Combine the svgs into a single pdf for easy printing.
+    cmd = ["rsvg-convert", "--format=pdf", "--output=build/cards.pdf", *pdf_inputs]
+    subprocess.check_call(cmd)
 
 
 if __name__ == "__main__":
