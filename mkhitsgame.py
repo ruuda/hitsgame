@@ -30,6 +30,9 @@ def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
     )
     lines = out.splitlines()
     md5sum = lines[0]
+    if md5sum == "00000000000000000000000000000000":
+        print(f"{fname} has no embedded md5sum, re-encode with -f8")
+        sys.exit(1)
     tags = [line.split("=", maxsplit=1) for line in lines[1:]]
     tags = [t for t in tags if len(t) == 2]
     return md5sum, {k.upper(): v for k, v in tags}
@@ -62,24 +65,42 @@ class Track(NamedTuple):
             print(f"{fname}: No ORIGINALDATE or DATE tag present.")
             sys.exit(1)
 
-        url = config.url_prefix + md5sum + ".flac"
+        url = config.url_prefix + md5sum + ".mp4"
         year = int(date[0:4])
 
         return Track(year, fname, title, artist, md5sum, url)
 
     def out_fname(self) -> str:
-        return self.md5sum + ".flac"
+        return self.md5sum + ".mp4"
 
-    def copy_to_out(self) -> None:
+    def encode_to_out(self) -> None:
         """
-        Copy the file into the output directory with metadata stripped, under
-        an unpredictable (but reproducible) name based on the audio md5sum.
+        Encode the input flac file to an mp4 file in the output directory, under
+        an unpredictable (but reproducible) name based on the audio md5sum. The
+        resulting file has all metadata removed on purpose.
         """
-        # Note, we use copyfile to avoid copying the metadata; even if the
-        # original file is read-only, we need it to be writable now.
-        shutil.copyfile(self.fname, "out/tmp.flac")
-        subprocess.check_call(["metaflac", "--remove-all", "out/tmp.flac"])
-        os.rename("out/tmp.flac", os.path.join("out", self.out_fname()))
+        out_fname = os.path.join("out", self.out_fname())
+        if os.path.isfile(out_fname):
+            return
+        subprocess.check_call([
+            "ffmpeg",
+            "-i", self.fname,
+            # Copy the audio stream, and no other stream (no cover art).
+            "-map", "0:a",
+            # By default ffmpeg copies metadata from the input file (file 0).
+            # Disable this by copying from the non-existing file -1 instead.
+            "-map_metadata", "-1",
+            # Really disable metadata writing, including the encoder tag.
+            "-write_xing", "0",
+            "-id3v2_version", "0",
+            # Downmix stereo to mono (audio channels = 1). When we play the game
+            # we listen on a phone speaker or bluetooth speaker anyway.
+            "-ac", "1",
+            # Encode as AAC at 192kbps.
+            "-b:a", "192k",
+            "-c:a", "aac",
+            out_fname,
+        ])
 
     def qr_svg(self) -> Tuple[str, int]:
         """
@@ -321,7 +342,7 @@ def main() -> None:
             continue
         fname_full = os.path.join(track_dir, fname)
         track = Track.load(config, fname_full)
-        track.copy_to_out()
+        track.encode_to_out()
         tracks.append(track)
 
     tracks.sort()
