@@ -193,8 +193,12 @@ class Table(NamedTuple):
         # Size of the page.
         w_mm = 210
         h_mm = 297
-        # Size of the cards / table cells.
-        side_mm = 65
+        # Size of the cards / table cells. In the Hitster game I have, the cards
+        # have a side length of 65mm. But then fitting the table on A4 paper, it
+        # is possible, but the margins get very small to the point where the
+        # crop marks may fall into the non-printable region. So make the cards
+        # slightly smaller so they are safe to print.
+        side_mm = 62
 
         tw_mm = side_mm * self.width
         th_mm = side_mm * self.height
