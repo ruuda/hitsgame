@@ -15,6 +15,7 @@ from qrcode.image.svg import SvgPathImage
 
 from typing import Dict, Iterable, List, Literal, NamedTuple, Tuple
 
+
 def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
     """
     Return the metadata tags (Vorbis comments) from the file. If a tag is
@@ -70,7 +71,7 @@ class Track(NamedTuple):
         Copy the file into the output directory with metadata stripped, under
         an unpredictable (but reproducible) name based on the audio md5sum.
         """
-        shutil.copy(self.fname, "out/tmp.flac");
+        shutil.copy(self.fname, "out/tmp.flac")
         subprocess.check_call(["metaflac", "--remove-all", "out/tmp.flac"])
         os.rename("out/tmp.flac", os.path.join("out", self.out_fname()))
 
@@ -80,6 +81,7 @@ class Track(NamedTuple):
         (in SVG units, which by convention we map to mm).
         """
         from qrcode.compat.etree import ET  # type: ignore
+
         # A box size of 10 means that every "pixel" in the code is 1mm, but we
         # don't know how many pixels wide and tall the code is, so return that
         # too, the "pixel size". Note, it is independent of the specified box
@@ -147,6 +149,7 @@ class Table(NamedTuple):
     """
     A table of cards laid out on two-sided paper.
     """
+
     cells: List[Track]
 
     # Hitster cards are 65mm wide, so on a 210mm wide A4 paper, we can fit
@@ -172,10 +175,7 @@ class Table(NamedTuple):
         return len(self.cells) >= self.width * self.height
 
     def render_svg(
-        self,
-        config: Config,
-        mode: Literal["qr"] | Literal["title"],
-        page_footer: str
+        self, config: Config, mode: Literal["qr"] | Literal["title"], page_footer: str
     ) -> str:
         """
         Render the front of the page as svg. The units are in millimeters.
@@ -242,7 +242,7 @@ class Table(NamedTuple):
                 y_mm = vmargin_mm + iy * side_mm + (side_mm - qr_mm) / 2
                 parts.append(f'<g transform="translate({x_mm}, {y_mm})">')
                 parts.append(qr_path)
-                parts.append(f'</g>')
+                parts.append(f"</g>")
 
             if mode == "title":
                 # Note, we mirror over the x-axis, to match the QR codes when
