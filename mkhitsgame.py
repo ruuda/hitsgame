@@ -94,6 +94,16 @@ class Config(NamedTuple):
     url_prefix: str
     font: str
 
+    # Whether to include a grid in the output. This is good for inspecting the
+    # output on a computer, but for print, unless you want to use the grid as
+    # a guide for scissors to cut, you probably want to enable crop marks and
+    # disable the grid, so a slight misalignment when cutting does not result in
+    # a line near the edge of the card.
+    grid: bool
+
+    # Whether to include crop marks in the output that indicate where to cut.
+    crop_marks: bool
+
     @staticmethod
     def load(fname: str) -> Config:
         with open(fname, "rb") as f:
@@ -207,28 +217,41 @@ class Table(NamedTuple):
             .year {{ font-size: 18px; font-weight: 900; }}
             .title, .artist, .footer {{ font-size: 5.2px; font-weight: 400; }}
             .title {{ font-style: italic; }}
+            rect, line {{ stroke: black; stroke-width: 0.2; }}
             </style>
             """
         )
-        parts.append(
-            f'<rect x="{hmargin_mm}" y="{vmargin_mm}" '
-            f'width="{tw_mm}" height="{th_mm}" '
-            'fill="transparent" stroke="black" stroke-width="0.1" stroke-linejoin="miter"/>'
-        )
-        for ix in range(1, self.width):
+        if config.grid:
+            parts.append(
+                f'<rect x="{hmargin_mm}" y="{vmargin_mm}" '
+                f'width="{tw_mm}" height="{th_mm}" '
+                'fill="transparent" stroke-linejoin="miter"/>'
+            )
+        for ix in range(0, self.width + 1):
             x_mm = hmargin_mm + ix * side_mm
-            parts.append(
-                f'<line x1="{x_mm}" y1="{vmargin_mm}" '
-                f'x2="{x_mm}" y2="{vmargin_mm + th_mm}" '
-                'stroke="black" stroke-width="0.1" />'
-            )
-        for iy in range(1, self.height):
+            if config.grid and ix > 0 and ix <= self.width:
+                parts.append(
+                    f'<line x1="{x_mm}" y1="{vmargin_mm}" '
+                    f'x2="{x_mm}" y2="{vmargin_mm + th_mm}" />'
+                )
+            if config.crop_marks:
+                parts.append(
+                    f'<line x1="{x_mm}" y1="{vmargin_mm - 5}" x2="{x_mm}" y2="{vmargin_mm - 1}" />'
+                    f'<line x1="{x_mm}" y1="{vmargin_mm + th_mm + 1}" x2="{x_mm}" y2="{vmargin_mm + th_mm + 5}" />'
+                )
+
+        for iy in range(0, self.height + 1):
             y_mm = vmargin_mm + iy * side_mm
-            parts.append(
-                f'<line x1="{hmargin_mm}" y1="{y_mm}" '
-                f'x2="{hmargin_mm + tw_mm}" y2="{y_mm}" '
-                'stroke="black" stroke-width="0.1" />'
-            )
+            if config.grid and iy > 0 and iy <= self.height:
+                parts.append(
+                    f'<line x1="{hmargin_mm}" y1="{y_mm}" '
+                    f'x2="{hmargin_mm + tw_mm}" y2="{y_mm}" />'
+                )
+            if config.crop_marks:
+                parts.append(
+                    f'<line x1="{hmargin_mm - 5}" y1="{y_mm}" x2="{hmargin_mm - 1}" y2="{y_mm}" />'
+                    f'<line x1="{hmargin_mm + tw_mm + 1}" y1="{y_mm}" x2="{hmargin_mm + tw_mm + 5}" y2="{y_mm}" />'
+                )
 
         for i, track in enumerate(self.cells):
             if mode == "qr":
