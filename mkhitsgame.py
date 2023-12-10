@@ -10,10 +10,12 @@ import subprocess
 import sys
 import tomllib
 
-import qrcode
-from qrcode.image.svg import SvgPathImage
+import qrcode  # type: ignore
 
 from typing import Dict, Iterable, List, Literal, NamedTuple, Tuple
+from collections import Counter
+
+from qrcode.image.svg import SvgPathImage  # type: ignore
 
 
 def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
@@ -29,14 +31,15 @@ def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
     lines = out.splitlines()
     md5sum = lines[0]
     tags = [line.split("=", maxsplit=1) for line in lines[1:]]
+    tags = [t for t in tags if len(t) == 2]
     return md5sum, {k.upper(): v for k, v in tags}
 
 
 class Track(NamedTuple):
+    year: int
     fname: str
     title: str
     artist: str
-    year: int
     md5sum: str
     url: str
 
@@ -60,8 +63,9 @@ class Track(NamedTuple):
             sys.exit(1)
 
         url = config.url_prefix + md5sum + ".flac"
+        year = int(date[0:4])
 
-        return Track(fname, title, artist, int(date[0:4]), md5sum, url)
+        return Track(year, fname, title, artist, md5sum, url)
 
     def out_fname(self) -> str:
         return self.md5sum + ".flac"
@@ -71,7 +75,9 @@ class Track(NamedTuple):
         Copy the file into the output directory with metadata stripped, under
         an unpredictable (but reproducible) name based on the audio md5sum.
         """
-        shutil.copy(self.fname, "out/tmp.flac")
+        # Note, we use copyfile to avoid copying the metadata; even if the
+        # original file is read-only, we need it to be writable now.
+        shutil.copyfile(self.fname, "out/tmp.flac")
         subprocess.check_call(["metaflac", "--remove-all", "out/tmp.flac"])
         os.rename("out/tmp.flac", os.path.join("out", self.out_fname()))
 
@@ -116,7 +122,7 @@ def line_break_text(s: str) -> List[str]:
     Line break the artist and title so they (hopefully) fit on a card. This is a
     hack based on string lengths, but it's good enough for most cases.
     """
-    if len(s) < 28:
+    if len(s) < 24:
         return [s]
 
     words = s.split(" ")
@@ -259,7 +265,9 @@ class Table(NamedTuple):
 
         for i, track in enumerate(self.cells):
             if mode == "qr":
-                ix = i % self.width
+                # Note, we mirror over the x-axis, to match the titles codes
+                # when printed double-sided.
+                ix = self.width - 1 - (i % self.width)
                 iy = i // self.width
                 qr_path, qr_mm = track.qr_svg()
                 # I'm lazy so we center the QR codes, we don't resize them. If the
@@ -272,9 +280,7 @@ class Table(NamedTuple):
                 parts.append(f"</g>")
 
             if mode == "title":
-                # Note, we mirror over the x-axis, to match the QR codes when
-                # printed double-sided.
-                ix = self.width - 1 - (i % self.width)
+                ix = i % self.width
                 iy = i // self.width
                 x_mm = hmargin_mm + (ix + 0.5) * side_mm
                 y_mm = vmargin_mm + (iy + 0.5) * side_mm
@@ -307,7 +313,12 @@ def main() -> None:
     tables: List[Table] = []
     tracks: List[Track] = []
 
+    year_counts: Counter[int] = Counter()
+    decade_counts: Counter[int] = Counter()
+
     for fname in os.listdir(track_dir):
+        if not fname.endswith(".flac"):
+            continue
         fname_full = os.path.join(track_dir, fname)
         track = Track.load(config, fname_full)
         track.copy_to_out()
@@ -316,6 +327,8 @@ def main() -> None:
     tracks.sort()
     for track in tracks:
         table.append(track)
+        year_counts[track.year] += 1
+        decade_counts[10 * (track.year // 10)] += 1
 
         if table.is_full():
             tables.append(table)
@@ -325,6 +338,21 @@ def main() -> None:
     if not table.is_empty():
         tables.append(table)
 
+    # Print statistics about how many tracks we have per year and per decade, so
+    # you can tweak the track selection to make the distribution somewhat more
+    # even.
+    print("YEAR STATISTICS")
+    for year, count in sorted(year_counts.items()):
+        print(f"{year}: {count:2} {'#' * count}")
+
+    print("\nDECADE STATISTICS")
+    for decade, count in sorted(decade_counts.items()):
+        print(f"{decade}s: {count:2} {'#' * count}")
+
+    print("\nTOTAL")
+    print(f"{sum(decade_counts.values())} tracks")
+
+
     # For every table, write the two pages as svg.
     pdf_inputs: List[str] = []
     for i, table in enumerate(tables):
@@ -332,9 +360,9 @@ def main() -> None:
         pdf_inputs.append(f"build/{p}a.svg")
         pdf_inputs.append(f"build/{p}b.svg")
         with open(pdf_inputs[-2], "w", encoding="utf-8") as f:
-            f.write(tables[0].render_svg(config, "title", f"{p}a"))
+            f.write(table.render_svg(config, "title", f"{p}a"))
         with open(pdf_inputs[-1], "w", encoding="utf-8") as f:
-            f.write(tables[0].render_svg(config, "qr", f"{p}b"))
+            f.write(table.render_svg(config, "qr", f"{p}b"))
 
     # Combine the svgs into a single pdf for easy printing.
     cmd = ["rsvg-convert", "--format=pdf", "--output=build/cards.pdf", *pdf_inputs]
