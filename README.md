@@ -2,7 +2,9 @@
 
 Build your own version of the game [Hitster][hitster]. The resulting cards
 contain a QR code that point to an audio file on a webserver, no Spotify is
-needed to play.
+needed to play. The program generates a pdf with cards like this:
+
+![Two sides of an example output page](example.png)
 
 ## Ingredients
 
