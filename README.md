@@ -36,8 +36,8 @@ Software tools needed:
  2. Create a file named `mkhitsgame.toml` next to the `tracks` directory, and
     add the configuration as shown in the next section.
  3. Run `mkhitsgame.py`. It will print statistics about the track distribution
-    over years and and decades, so you can tweak the track selection to balance
-    out the game.
+    over years and decades, so you can tweak the track selection to balance out
+    the game.
  4. You now have two new directories: `build` and `out`. `out` contains the
     tracks, compressed and anonymized. These files contain no metadata, and the
     file names are long enough to be virtually unguessable, so they are safe to
@@ -57,7 +57,7 @@ url_prefix = "https://example.com/"
 # Font to use on the cards.
 font = "Cantarell"
 
-# Whethes to draw a grid around the cards. If you want to inspect the pdf on
+# Whether to draw a grid around the cards. If you want to inspect the pdf on
 # your computer, or if you are cutting the cards with scissors, you probably
 # want to enable this. If you are cutting with a paper cutter, you should
 # disable the grid, because if you don't cut *exactly* on the line you'll end
