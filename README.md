@@ -22,12 +22,12 @@ Hardware tools needed:
 
 Software tools needed:
 
- * Either [Nix 2.17.0][nix217], which can provide all other needed packages,
-   run with `nix develop --command mkhitsgame.py`.
- * Or installed manually:
-   * Python with `qrcode==7.4.2` package.
-   * ffmpeg n6.1.
-   * rsvg-convert (from librsvg) 2.57.1.
+ * Either [Nix 2.17.0][nix217], which can provide all the needed packages,
+   run with `nix develop --command ./mkhitsgame.py`.
+ * Or install manually:
+   * Python ≥ 3.11 with `qrcode==7.4.2` package.
+   * ffmpeg 5.1.3 or n6.1.
+   * rsvg-convert (from librsvg) 2.55.1 or 2.57.1.
 
 ## Preparation
 
