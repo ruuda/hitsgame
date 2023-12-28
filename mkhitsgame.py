@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 
+# Hitsgame -- Build cards for a music game
+# Copyright 2023 Ruud van Asseldonk
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, version 3.
+
 from __future__ import annotations
 
 import html
