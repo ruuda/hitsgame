@@ -72,7 +72,7 @@ crop_marks = false
 ```
 
 For the webserver, you need to configure it to serve the `.mp4` files with
-`audo/mp4` MIME type. For Nginx, you can do this using the following snippet:
+`audio/mp4` MIME type. For Nginx, you can do this using the following snippet:
 
 ```nginx
 types {
