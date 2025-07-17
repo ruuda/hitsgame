@@ -2,7 +2,7 @@
   description = "Hitsgame";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/nixos-24.05";
+    nixpkgs.url = "nixpkgs/nixos-25.05";
     utils.url = "github:numtide/flake-utils";
   };
 
@@ -10,7 +10,7 @@
   utils.lib.eachDefaultSystem (system:
     let
       pkgs = import nixpkgs { inherit system; };
-      python = pkgs.python311.withPackages (ps: [ps.qrcode]);
+      python = pkgs.python311.withPackages (ps: [ps.qrcode ps.mutagen]);
     in
       {
         devShells = {
@@ -23,7 +23,6 @@
               python
             ];
 
-            LOCALE_ARCHIVE = "${pkgs.glibcLocales}/lib/locale/locale-archive";
           };
         };
       }
