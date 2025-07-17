@@ -27,26 +27,32 @@ Software tools needed:
  * Either [Nix 2.17.0][nix217], which can provide all the needed packages,
    run with `nix develop --command ./mkhitsgame.py`.
  * Or install manually:
-   * Python ≥ 3.11 with `qrcode==7.4.2` package.
+   * Python ≥ 3.11 with `qrcode==7.4.2` and `mutagen` packages.
    * ffmpeg 5.1.3 or n6.1.
    * rsvg-convert (from librsvg) 2.55.1 or 2.57.1.
 
 ## Preparation
 
- 1. Create a directory named `tracks` and put the tracks in there that you want
-    to include.
- 2. Create a file named `mkhitsgame.toml` next to the `tracks` directory, and
+ 1. Create a directory named `tracks` and put the audio files in there that you want
+    to include. The script supports `.mp3`, `.flac`, `.m4a`, `.ogg`, and `.wav` files.
+ 2. Ensure your audio files have proper ID3 tags:
+    - **TITLE**: Song title
+    - **ARTIST**: Artist name  
+    - **ORIGINALDATE** (preferred) or **DATE** or **YEAR**: Release year
+ 3. Create a file named `mkhitsgame.toml` next to the `tracks` directory, and
     add the configuration as shown in the next section.
- 3. Run `mkhitsgame.py`. It will print statistics about the track distribution
-    over years and decades, so you can tweak the track selection to balance out
-    the game.
- 4. You now have two new directories: `build` and `out`. `out` contains the
-    tracks, compressed and anonymized. These files contain no metadata, and the
-    file names are long enough to be virtually unguessable, so they are safe to
-    serve from a public webserver without additional authentication. `build`
-    contains the pdf with the cards, as well as intermediate svg files.
- 5. Upload the contents of `out` to your webserver.
- 6. Print `build/cards.pdf` and cut out the cards.
+ 4. Run `mkhitsgame.py`. The script will:
+    - Extract metadata from ID3 tags in your audio files
+    - Convert each song to a 60-second mono AAC clip at 128kbps
+    - Generate hash-based filenames for anonymity
+    - Create printable cards with QR codes
+    - Print statistics about track distribution over years and decades
+ 5. You now have two new directories: `build` and your configured output directory 
+    (default: `out`). The output directory contains compressed and anonymized MP4 files 
+    with no metadata and unguessable filenames, safe for public webserver hosting. 
+    `build` contains the PDF with cards and intermediate SVG files.
+ 6. Upload the contents of your output directory to your webserver.
+ 7. Print `build/cards.pdf` and cut out the cards.
 
 ## Configuration
 
@@ -58,6 +64,9 @@ url_prefix = "https://example.com/"
 
 # Font to use on the cards.
 font = "Cantarell"
+
+# Directory where processed songs will be stored.
+songs_dir = "out"
 
 # Whether to draw a grid around the cards. If you want to inspect the pdf on
 # your computer, or if you are cutting the cards with scissors, you probably

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import os
 import os.path
@@ -24,26 +25,12 @@ from collections import Counter
 
 from qrcode.image.svg import SvgPathImage  # type: ignore
 
-
-def metaflac_get_tags(fname: str) -> Tuple[str, Dict[str, str]]:
-    """
-    Return the metadata tags (Vorbis comments) from the file. If a tag is
-    repeated, only the last value is kept. Returns the audio data md5sum as
-    well.
-    """
-    out = subprocess.check_output(
-        ["metaflac", "--show-md5sum", "--export-tags-to=-", fname],
-        encoding="utf-8",
-    )
-    lines = out.splitlines()
-    md5sum = lines[0]
-    if md5sum == "00000000000000000000000000000000":
-        print(f"{fname} has no embedded md5sum, re-encode with -f8")
-        sys.exit(1)
-    tags = [line.split("=", maxsplit=1) for line in lines[1:]]
-    tags = [t for t in tags if len(t) == 2]
-    return md5sum, {k.upper(): v for k, v in tags}
-
+try:
+    from mutagen import File
+    from mutagen.id3 import ID3NoHeaderError
+except ImportError:
+    print("Error: mutagen library not found. Install with: pip install mutagen")
+    sys.exit(1)
 
 class Track(NamedTuple):
     year: int
@@ -54,41 +41,92 @@ class Track(NamedTuple):
     url: str
 
     @staticmethod
-    def load(config: Config, fname: str) -> Track:
+    def load_from_file(config: Config, file_path: str) -> Track | None:
         """
-        Create a track from an input filename.
+        Create a track from a song file in original_songs folder.
         """
-        md5sum, tags = metaflac_get_tags(fname)
-        title = tags.get("TITLE")
-        artist = tags.get("ARTIST")
-        date = tags.get("ORIGINALDATE", tags.get("DATE"))
-        if title is None:
-            print(f"{fname}: No TITLE tag present.")
-            sys.exit(1)
-        if artist is None:
-            print(f"{fname}: No ARTIST tag present.")
-            sys.exit(1)
-        if date is None:
-            print(f"{fname}: No ORIGINALDATE or DATE tag present.")
-            sys.exit(1)
-
-        url = config.url_prefix + md5sum + ".mp4"
-        year = int(date[0:4])
-
-        return Track(year, fname, title, artist, md5sum, url)
+        try:
+            # Extract ID3 tags
+            audio_file = File(file_path)
+            if audio_file is None:
+                print(f"Warning: Unsupported file format: {file_path}")
+                return None
+            
+            # Get metadata
+            title = ""
+            artist = ""
+            year = ""
+            
+            if hasattr(audio_file, 'tags') and audio_file.tags:
+                # For MP3 files with ID3 tags
+                title = str(audio_file.tags.get('TIT2', [''])[0]) if audio_file.tags.get('TIT2') else ''
+                artist = str(audio_file.tags.get('TPE1', [''])[0]) if audio_file.tags.get('TPE1') else ''
+                
+                # Prefer ORIGINALDATE, then TDRC, then TYER
+                year_tag = audio_file.tags.get('TDOR', [''])[0] if audio_file.tags.get('TDOR') else ''
+                if not year_tag:
+                    year_tag = audio_file.tags.get('TDRC', [''])[0] if audio_file.tags.get('TDRC') else ''
+                if not year_tag:
+                    year_tag = audio_file.tags.get('TYER', [''])[0] if audio_file.tags.get('TYER') else ''
+                year = str(year_tag)[:4] if year_tag else ''
+            else:
+                # For other formats, try generic tags
+                title = str(audio_file.get('TITLE', [''])[0]) if audio_file.get('TITLE') else ''
+                artist = str(audio_file.get('ARTIST', [''])[0]) if audio_file.get('ARTIST') else ''
+                
+                # Prefer ORIGINALDATE, then DATE, then YEAR
+                year_tag = audio_file.get('ORIGINALDATE', [''])[0] if audio_file.get('ORIGINALDATE') else ''
+                if not year_tag:
+                    year_tag = audio_file.get('DATE', [''])[0] if audio_file.get('DATE') else ''
+                if not year_tag:
+                    year_tag = audio_file.get('YEAR', [''])[0] if audio_file.get('YEAR') else ''
+                year = str(year_tag)[:4] if year_tag else ''
+            
+            # Validate required fields
+            if not title or not artist or not year:
+                print(f"Warning: Missing required tags in {file_path}")
+                print(f"  Title: '{title}', Artist: '{artist}', Year: '{year}'")
+                return None
+            
+            # Create MD5 hash from year, artist, title
+            hash_input = f"{year}_{artist}_{title}"
+            md5sum = hashlib.md5(hash_input.encode('utf-8')).hexdigest()
+            
+            # Get file extension
+            _, ext = os.path.splitext(file_path)
+            
+            # Create URL (MP4 will be created during encoding step)
+            url = config.url_prefix + md5sum + ".mp4"
+            
+            return Track(
+                year=int(year) if year.isdigit() else 0,
+                fname=file_path,  # Keep original file path for encoding
+                title=title,
+                artist=artist,
+                md5sum=md5sum,
+                url=url
+            )
+            
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
+            return None
 
     def out_fname(self) -> str:
         return self.md5sum + ".mp4"
 
-    def encode_to_out(self) -> None:
+    def encode_to_out(self, config: Config) -> None:
         """
-        Encode the input flac file to an mp4 file in the output directory, under
-        an unpredictable (but reproducible) name based on the audio md5sum. The
-        resulting file has all metadata removed on purpose.
+        Encode the input audio file to an mp4 file in the output directory, under
+        a hash-based filename. The resulting file has all metadata removed and is
+        converted to mono AAC format for the game.
         """
-        out_fname = os.path.join("out", self.out_fname())
+        out_fname = os.path.join(config.songs_dir, self.out_fname())
+        
         if os.path.isfile(out_fname):
             return
+        
+        print(f"Encoding: {os.path.basename(self.fname)} -> {self.out_fname()}")
+        
         subprocess.check_call([
             "ffmpeg",
             "-i", self.fname,
@@ -103,9 +141,10 @@ class Track(NamedTuple):
             # Downmix stereo to mono (audio channels = 1). When we play the game
             # we listen on a phone speaker or bluetooth speaker anyway.
             "-ac", "1",
-            # Encode as AAC at 192kbps.
-            "-b:a", "192k",
+            # Encode as AAC at 128kbps.
+            "-b:a", "128k",
             "-c:a", "aac",
+            "-to", "60", # first 60 seconds
             out_fname,
         ])
 
@@ -127,6 +166,7 @@ class Track(NamedTuple):
 class Config(NamedTuple):
     url_prefix: str
     font: str
+    songs_dir: str
 
     # Whether to include a grid in the output. This is good for inspecting the
     # output on a computer, but for print, unless you want to use the grid as
@@ -335,7 +375,8 @@ def main() -> None:
     config = Config.load("mkhitsgame.toml")
     os.makedirs("out", exist_ok=True)
     os.makedirs("build", exist_ok=True)
-    track_dir = "tracks"
+    os.makedirs("tracks", exist_ok=True)
+    os.makedirs(config.songs_dir, exist_ok=True)
 
     table = Table.new()
     tables: List[Table] = []
@@ -344,13 +385,38 @@ def main() -> None:
     year_counts: Counter[int] = Counter()
     decade_counts: Counter[int] = Counter()
 
-    for fname in os.listdir(track_dir):
-        if not fname.endswith(".flac"):
+    # Read tracks from tracks folder
+    tracks_dir = "tracks"
+    
+    if not os.path.exists(tracks_dir):
+        print(f"Error: {tracks_dir} directory not found")
+        sys.exit(1)
+    
+    # Supported audio file extensions
+    audio_extensions = {'.mp3', '.flac', '.m4a', '.ogg', '.wav'}
+    
+    print(f"Processing songs from {tracks_dir}...")
+    
+    for filename in os.listdir(tracks_dir):
+        file_path = os.path.join(tracks_dir, filename)
+        
+        # Skip directories and non-audio files
+        if not os.path.isfile(file_path):
             continue
-        fname_full = os.path.join(track_dir, fname)
-        track = Track.load(config, fname_full)
-        track.encode_to_out()
-        tracks.append(track)
+            
+        _, ext = os.path.splitext(filename)
+        if ext.lower() not in audio_extensions:
+            continue
+        
+        # Load track from file
+        track = Track.load_from_file(config, file_path)
+        if track:
+            tracks.append(track)
+    
+    # Encode tracks to output format
+    print(f"\nEncoding {len(tracks)} tracks to MP4...")
+    for track in tracks:
+        track.encode_to_out(config)
 
     tracks.sort()
     for track in tracks:
