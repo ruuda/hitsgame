@@ -12,7 +12,6 @@ from __future__ import annotations
 import html
 import os
 import os.path
-import shutil
 import subprocess
 import sys
 import tomllib
@@ -82,13 +81,14 @@ class Track(NamedTuple):
 
     def encode_to_out(self) -> None:
         """
-        Encode the input flac file to an mp4 file in the output directory, under
-        an unpredictable (but reproducible) name based on the audio md5sum. The
-        resulting file has all metadata removed on purpose.
+        Encode the input flac file to an mp4 file in the output directory,
+        under an unpredictable (but reproducible) name based on the audio
+        md5sum. The resulting file has all metadata removed on purpose.
         """
         out_fname = os.path.join("out", self.out_fname())
         if os.path.isfile(out_fname):
             return
+        # fmt:off
         subprocess.check_call([
             "ffmpeg",
             "-i", self.fname,
@@ -100,14 +100,15 @@ class Track(NamedTuple):
             # Really disable metadata writing, including the encoder tag.
             "-write_xing", "0",
             "-id3v2_version", "0",
-            # Downmix stereo to mono (audio channels = 1). When we play the game
-            # we listen on a phone speaker or bluetooth speaker anyway.
+            # Downmix stereo to mono (audio channels = 1). When we play the
+            # game we listen on a phone speaker or bluetooth speaker anyway.
             "-ac", "1",
             # Encode as AAC at 192kbps.
             "-b:a", "192k",
             "-c:a", "aac",
             out_fname,
         ])
+        # fmt:on
 
     def qr_svg(self) -> Tuple[str, int]:
         """
@@ -131,8 +132,8 @@ class Config(NamedTuple):
     # Whether to include a grid in the output. This is good for inspecting the
     # output on a computer, but for print, unless you want to use the grid as
     # a guide for scissors to cut, you probably want to enable crop marks and
-    # disable the grid, so a slight misalignment when cutting does not result in
-    # a line near the edge of the card.
+    # disable the grid, so a slight misalignment when cutting does not result
+    # in a line near the edge of the card.
     grid: bool
 
     # Whether to include crop marks in the output that indicate where to cut.
@@ -147,8 +148,8 @@ class Config(NamedTuple):
 
 def line_break_text(s: str) -> List[str]:
     """
-    Line break the artist and title so they (hopefully) fit on a card. This is a
-    hack based on string lengths, but it's good enough for most cases.
+    Line break the artist and title so they (hopefully) fit on a card. This
+    is a hack based on string lengths, but it's good enough for most cases.
     """
     if len(s) < 24:
         return [s]
@@ -156,9 +157,9 @@ def line_break_text(s: str) -> List[str]:
     words = s.split(" ")
     char_count = sum(len(word) for word in words)
 
-    # The starting situation is everything on the first line. We'll try out
-    # every possible line break and pick the one with the most even distribution
-    # (by characters in the string, not true text width).
+    # The starting situation is everything on the first line. We'll try
+    # out every possible line break and pick the one with the most even
+    # distribution (by characters in the string, not true text width).
     top, bot = " ".join(words), ""
     diff = char_count
 
@@ -227,11 +228,11 @@ class Table(NamedTuple):
         # Size of the page.
         w_mm = 210
         h_mm = 297
-        # Size of the cards / table cells. In the Hitster game I have, the cards
-        # have a side length of 65mm. But then fitting the table on A4 paper, it
-        # is possible, but the margins get very small to the point where the
-        # crop marks may fall into the non-printable region. So make the cards
-        # slightly smaller so they are safe to print.
+        # Size of the cards / table cells. In the Hitster game I have, the
+        # cards have a side length of 65mm. But then fitting the table on A4
+        # paper, it is possible, but the margins get very small to the point
+        # where the crop marks may fall into the non-printable region. So make
+        # the cards slightly smaller so they are safe to print.
         side_mm = 62
 
         tw_mm = side_mm * self.width
@@ -298,9 +299,9 @@ class Table(NamedTuple):
                 ix = self.width - 1 - (i % self.width)
                 iy = i // self.width
                 qr_path, qr_mm = track.qr_svg()
-                # I'm lazy so we center the QR codes, we don't resize them. If the
-                # urls get longer, then the QR codes will cover a larger area of the
-                # cards.
+                # I'm lazy so we center the QR codes, we don't resize them. If
+                # the urls get longer, then the QR codes will cover a larger
+                # area of the cards.
                 x_mm = hmargin_mm + ix * side_mm + (side_mm - qr_mm) / 2
                 y_mm = vmargin_mm + iy * side_mm + (side_mm - qr_mm) / 2
                 parts.append(f'<g transform="translate({x_mm}, {y_mm})">')
@@ -366,9 +367,9 @@ def main() -> None:
     if not table.is_empty():
         tables.append(table)
 
-    # Print statistics about how many tracks we have per year and per decade, so
-    # you can tweak the track selection to make the distribution somewhat more
-    # even.
+    # Print statistics about how many tracks we have per year and per decade,
+    # so you can tweak the track selection to make the distribution somewhat
+    # more even.
     print("YEAR STATISTICS")
     for year, count in sorted(year_counts.items()):
         print(f"{year}: {count:2} {'#' * count}")
@@ -379,7 +380,6 @@ def main() -> None:
 
     print("\nTOTAL")
     print(f"{sum(decade_counts.values())} tracks")
-
 
     # For every table, write the two pages as svg.
     pdf_inputs: List[str] = []
